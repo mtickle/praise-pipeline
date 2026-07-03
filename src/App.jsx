@@ -1,122 +1,271 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useState } from 'react';
+import { supabase } from './supabaseClient';
 
-function App() {
-  const [count, setCount] = useState(0)
+const PAGE_SIZE = 25;
+
+export default function PraiseDashboard() {
+  const [tracks, setTracks] = useState([]);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [processingId, setProcessingId] = useState(null); 
+  const [expandedTrack, setExpandedTrack] = useState(null); // Tracks which drawer is open
+
+  useEffect(() => {
+    fetchTracks(page);
+  }, [page]);
+
+  async function fetchTracks(pageIndex) {
+    setLoading(true);
+    const from = pageIndex * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    const { data, error } = await supabase
+      .from('playlist_tracks')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    
+    if (error) {
+      console.error("Error fetching tracks:", error);
+    } else {
+      setTracks(data);
+    }
+    setLoading(false);
+  }
+
+  async function updateRating(id, newRating) {
+    setTracks(tracks.map(t => t.id === id ? { ...t, rating: newRating } : t));
+    const { error } = await supabase.from('playlist_tracks').update({ rating: newRating }).eq('id', id);
+    if (error) console.error("Failed to save rating:", error);
+  }
+
+  async function runNARAnalysis(track) {
+    setProcessingId(`nar-${track.id}`);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('nar-audit', {
+        body: { songTitle: track.title, artistName: track.artist }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // Save the FULL payload to the database
+      const updates = { 
+        nar_rating: data.verdict,
+        nar_confidence: data.confidence_score,
+        nar_summary: data.summary,
+        nar_doctrinal_notes: data.doctrinal_notes,
+        nar_association_notes: data.association_notes
+      };
+
+      await supabase.from('playlist_tracks').update(updates).eq('id', track.id);
+      setTracks(tracks.map(t => t.id === track.id ? { ...t, ...updates } : t));
+      
+      // Auto-expand the drawer so you can read the results immediately
+      setExpandedTrack(track.id);
+
+    } catch (err) {
+      console.error("NAR Analysis failed:", err);
+      alert("Failed to run NAR check. Check console.");
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function runCategorization(track) {
+    setProcessingId(`cat-${track.id}`);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('liturgical-audit', {
+        body: { songTitle: track.title, artistName: track.artist }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // Save the FULL payload to the database
+      const updates = { 
+        worship_category: data.liturgical_movement,
+        worship_reasoning: data.theological_reasoning,
+        worship_scripture: data.scripture_connection
+      };
+
+      await supabase.from('playlist_tracks').update(updates).eq('id', track.id);
+      setTracks(tracks.map(t => t.id === track.id ? { ...t, ...updates } : t));
+      
+      setExpandedTrack(track.id);
+
+    } catch (err) {
+      console.error("Categorization failed:", err);
+      alert("Failed to run Categorization. Check console.");
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  const toggleExpand = (id) => {
+    setExpandedTrack(expandedTrack === id ? null : id);
+  };
+
+  const getNarBadgeColor = (rating) => {
+    if (rating === 'Green') return 'bg-green-600';
+    if (rating === 'Amber') return 'bg-yellow-600';
+    if (rating === 'Red') return 'bg-red-600';
+    return 'bg-gray-600';
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="p-8 bg-gray-900 min-h-screen text-white">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Praise Pipeline Command Center</h1>
+        
+        <div className="flex gap-4 items-center">
+          <button 
+            disabled={page === 0 || loading}
+            onClick={() => setPage(page - 1)}
+            className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 disabled:opacity-50"
+          >
+            Prev
+          </button>
+          <span>Page {page + 1}</span>
+          <button 
+            disabled={tracks.length < PAGE_SIZE || loading}
+            onClick={() => setPage(page + 1)}
+            className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 disabled:opacity-50"
+          >
+            Next
+          </button>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      </div>
+      
+      <div className="grid gap-4">
+        {tracks.map(track => (
+          <div key={track.id} className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden flex flex-col">
+            
+            {/* MAIN ROW */}
+            <div className="p-4 flex items-center justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold">{track.title}</h2>
+                  
+                  {track.nar_rating && (
+                    <span className={`text-xs px-2 py-1 rounded font-bold ${getNarBadgeColor(track.nar_rating)}`}>
+                      NAR: {track.nar_rating}
+                    </span>
+                  )}
+                  {track.worship_category && (
+                    <span className="text-xs px-2 py-1 rounded font-bold bg-blue-800">
+                      {track.worship_category.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                
+                <p className="text-gray-400">{track.artist} | Source: {track.source}</p>
+                <div className="flex gap-4 mt-1">
+                  <a href={track.youtube_link} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 text-sm">
+                    Watch on YouTube
+                  </a>
+                  {/* Expand Toggle */}
+                  {(track.nar_rating || track.worship_category) && (
+                    <button onClick={() => toggleExpand(track.id)} className="text-gray-400 hover:text-white text-sm underline">
+                      {expandedTrack === track.id ? 'Hide Details' : 'View AI Analysis'}
+                    </button>
+                  )}
+                </div>
+              </div>
 
-      <div className="ticks"></div>
+              {/* CONTROLS */}
+              <div className="flex items-center gap-6">
+                <div className="flex gap-1 text-2xl cursor-pointer">
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <span 
+                      key={star}
+                      onClick={() => updateRating(track.id, star)}
+                      className={track.rating >= star ? 'text-yellow-400' : 'text-gray-600 hover:text-gray-400 transition-colors'}
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+                <div className="flex flex-col gap-2 w-48">
+                  <button 
+                    onClick={() => runNARAnalysis(track)}
+                    disabled={processingId === `nar-${track.id}`}
+                    className="bg-red-900 hover:bg-red-800 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                  >
+                    {processingId === `nar-${track.id}` ? 'Analyzing...' : 'Run NAR Check'}
+                  </button>
+                  <button 
+                    onClick={() => runCategorization(track)}
+                    disabled={processingId === `cat-${track.id}`}
+                    className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                  >
+                    {processingId === `cat-${track.id}` ? 'Categorizing...' : 'Run Four-Fold'}
+                  </button>
+                </div>
+              </div>
+            </div>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+            {/* AI DETAILS DRAWER */}
+            {expandedTrack === track.id && (
+              <div className="bg-gray-900 p-6 border-t border-gray-700 text-sm grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                {/* Liturgical Analysis Column */}
+                <div>
+                  <h3 className="text-blue-400 font-bold mb-3 border-b border-gray-700 pb-1">Four-Fold Liturgical Model</h3>
+                  {track.worship_category ? (
+                    <div className="space-y-3">
+                      <p><span className="text-gray-400 font-semibold">Movement:</span> {track.worship_category}</p>
+                      <p><span className="text-gray-400 font-semibold">Reasoning:</span> {track.worship_reasoning}</p>
+                      {track.worship_scripture && (
+                        <p><span className="text-gray-400 font-semibold">Scripture:</span> {track.worship_scripture}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 italic">No Liturgical analysis run yet.</p>
+                  )}
+                </div>
+
+                {/* NAR Analysis Column */}
+                <div>
+                  <h3 className="text-red-400 font-bold mb-3 border-b border-gray-700 pb-1">NAR & Theological Audit</h3>
+                  {track.nar_rating ? (
+                    <div className="space-y-3">
+                      <div className="flex gap-4">
+                        <p><span className="text-gray-400 font-semibold">Verdict:</span> {track.nar_rating}</p>
+                        <p><span className="text-gray-400 font-semibold">Confidence:</span> {track.nar_confidence}%</p>
+                      </div>
+                      <p><span className="text-gray-400 font-semibold">Summary:</span> {track.nar_summary}</p>
+                      
+                      {track.nar_doctrinal_notes?.details?.length > 0 && (
+                        <div>
+                          <span className="text-gray-400 font-semibold">Doctrinal Notes:</span>
+                          <ul className="list-disc pl-5 mt-1 text-gray-300">
+                            {track.nar_doctrinal_notes.details.map((note, i) => <li key={i}>{note}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {track.nar_association_notes?.details?.length > 0 && (
+                        <div>
+                          <span className="text-gray-400 font-semibold">Association Notes:</span>
+                          <ul className="list-disc pl-5 mt-1 text-gray-300">
+                            {track.nar_association_notes.details.map((note, i) => <li key={i}>{note}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 italic">No NAR analysis run yet.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
-
-export default App
