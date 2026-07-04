@@ -10,6 +10,8 @@ permissions:
   pages: write
   id-token: write
 
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -34,13 +36,14 @@ jobs:
       - name: Build
         run: npm run build
         env:
+          # --- SECRETS INJECTION ---
+          # 1. You must define these keys in GitHub Repo Settings > Secrets
+          # 2. They must start with VITE_ to be visible to the app
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          # SECURITY FIX: Only the Publishable Key goes to the frontend!
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_KEY }}
+          VITE_SUPABASE_SERVICE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_KEY }}
 
       - name: Upload artifact
-        # Bumped to v4 to silence the Node 20 deprecation warning
-        uses: actions/upload-pages-artifact@v4 
+        uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
 
