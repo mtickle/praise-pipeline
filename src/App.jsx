@@ -10,20 +10,51 @@ export default function PraiseDashboard() {
   const [processingId, setProcessingId] = useState(null); 
   const [expandedTrack, setExpandedTrack] = useState(null);
 
-  useEffect(() => {
-    fetchTracks(page);
-  }, [page]);
+  // --- FILTER STATES ---
+  const [filterSource, setFilterSource] = useState('');
+  const [filterNar, setFilterNar] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterRating, setFilterRating] = useState('');
 
-  async function fetchTracks(pageIndex) {
+  // Fetch when page OR any filter changes
+  useEffect(() => {
+    fetchTracks();
+  }, [page, filterSource, filterNar, filterCategory, filterRating]);
+
+  // Helper to reset page to 0 when a user changes a filter
+  const handleFilterChange = (setter, value) => {
+    setter(value);
+    setPage(0);
+  };
+
+  async function fetchTracks() {
     setLoading(true);
-    const from = pageIndex * PAGE_SIZE;
+    const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    const { data, error } = await supabase
+    // 1. Base Query
+    let query = supabase
       .from('playlist_tracks')
       .select('*')
-      .order('created_at', { ascending: false })
-      .range(from, to);
+      .order('created_at', { ascending: false });
+
+    // 2. Chain Filters Dynamically
+    if (filterSource) {
+      query = query.ilike('source', `%${filterSource}%`);
+    }
+    if (filterNar) {
+      query = query.eq('nar_rating', filterNar);
+    }
+    if (filterCategory) {
+      // Using ilike in case the AI varied the capitalization
+      query = query.ilike('worship_category', `%${filterCategory}%`);
+    }
+    if (filterRating) {
+      query = query.eq('rating', parseInt(filterRating));
+    }
+
+    // 3. Apply Pagination & Execute
+    const { data, error } = await query.range(from, to);
     
     if (error) console.error("Error fetching tracks:", error);
     else setTracks(data);
@@ -37,7 +68,7 @@ export default function PraiseDashboard() {
 
     setTracks(tracks.filter(t => t.id !== id));
     const { error } = await supabase.from('playlist_tracks').delete().eq('id', id);
-    if (error) fetchTracks(page);
+    if (error) fetchTracks();
   }
 
   async function updateRating(id, newRating) {
@@ -113,19 +144,19 @@ export default function PraiseDashboard() {
   return (
     <div className="p-8 bg-gray-900 min-h-screen text-white relative">
       
-      {/* 1. THE BLOCKING OVERLAY MODAL */}
+      {/* BLOCKING OVERLAY MODAL */}
       {processingId && (
         <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center backdrop-blur-sm">
           <div className="bg-gray-800 p-8 rounded-lg border border-gray-600 shadow-2xl flex flex-col items-center">
-            {/* Simple CSS Spinner */}
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400 mb-4"></div>
-            <h2 className="text-2xl font-bold mb-2">Running Requested Audit</h2>
-            <p className="text-gray-400">Please wait...</p>
+            <h2 className="text-2xl font-bold mb-2">Running AI Audit...</h2>
+            <p className="text-gray-400">Consulting the digital theologians.</p>
           </div>
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-8">
+      {/* HEADER & PAGING */}
+      <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Praise Pipeline Command Center</h1>
         <div className="flex gap-4 items-center">
           <button disabled={page === 0 || loading} onClick={() => setPage(page - 1)} className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 disabled:opacity-50">Prev</button>
@@ -133,15 +164,79 @@ export default function PraiseDashboard() {
           <button disabled={tracks.length < PAGE_SIZE || loading} onClick={() => setPage(page + 1)} className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 disabled:opacity-50">Next</button>
         </div>
       </div>
+
+      {/* FILTER BAR */}
+      <div className="bg-gray-800 p-4 rounded-lg border border-gray-700 mb-8 flex flex-wrap gap-4 items-center">
+        <span className="text-gray-400 font-bold text-sm uppercase tracking-wider mr-2">Filters:</span>
+        
+        <input 
+          type="text" 
+          placeholder="Filter Source..." 
+          value={filterSource}
+          onChange={(e) => handleFilterChange(setFilterSource, e.target.value)}
+          className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm w-40 focus:outline-none focus:border-blue-500"
+        />
+
+        <select 
+          value={filterNar} 
+          onChange={(e) => handleFilterChange(setFilterNar, e.target.value)}
+          className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+        >
+          <option value="">All NAR Ratings</option>
+          <option value="Green">Green</option>
+          <option value="Amber">Amber</option>
+          <option value="Red">Red</option>
+        </select>
+
+        <select 
+          value={filterCategory} 
+          onChange={(e) => handleFilterChange(setFilterCategory, e.target.value)}
+          className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+        >
+          <option value="">All Liturgical Movements</option>
+          <option value="Praise">Praise (Gathering)</option>
+          <option value="Faith">Faith (Word)</option>
+          <option value="Love">Love (Table)</option>
+          <option value="Hope">Hope (Sending)</option>
+        </select>
+
+        <select 
+          value={filterRating} 
+          onChange={(e) => handleFilterChange(setFilterRating, e.target.value)}
+          className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+        >
+          <option value="">All Star Ratings</option>
+          <option value="5">5 Stars Only</option>
+          <option value="4">4 Stars Only</option>
+          <option value="3">3 Stars Only</option>
+          <option value="2">2 Stars Only</option>
+          <option value="1">1 Star Only</option>
+        </select>
+
+        {/* Clear Filters Button */}
+        {(filterSource || filterNar || filterCategory || filterRating) && (
+          <button 
+            onClick={() => {
+              setFilterSource('');
+              setFilterNar('');
+              setFilterCategory('');
+              setFilterRating('');
+              setPage(0);
+            }}
+            className="ml-auto text-gray-400 hover:text-white text-sm underline"
+          >
+            Clear All
+          </button>
+        )}
+      </div>
       
+      {/* TRACK LIST */}
       <div className="grid gap-4">
         {tracks.map(track => (
           <div key={track.id} className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden flex flex-col transition-all">
             
             <div className="p-4 flex items-center justify-between">
-              
               <div className="flex-1 flex gap-4 items-start">
-                {/* 3. THE COLLAPSIBLE TRAY BUTTON (Chevron) */}
                 <button 
                   onClick={() => toggleExpand(track.id)} 
                   className={`mt-1 text-gray-400 hover:text-white transition-transform duration-200 ${expandedTrack === track.id ? 'rotate-180' : ''}`}
@@ -173,24 +268,18 @@ export default function PraiseDashboard() {
                 </div>
 
                 <div className="flex flex-col gap-2 w-48">
-                  {/* 2. SMART BUTTONS: Change styling if data already exists */}
                   <button 
                     onClick={() => runNARAnalysis(track)}
                     className={`px-3 py-1 rounded text-sm transition-colors ${
-                      track.nar_rating 
-                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
-                        : 'bg-red-900 hover:bg-red-800 text-white'
+                      track.nar_rating ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-red-900 hover:bg-red-800 text-white'
                     }`}
                   >
                     {track.nar_rating ? 'Re-run NAR Check' : 'Run NAR Check'}
                   </button>
-
                   <button 
                     onClick={() => runCategorization(track)}
                     className={`px-3 py-1 rounded text-sm transition-colors ${
-                      track.worship_category 
-                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
-                        : 'bg-blue-900 hover:bg-blue-800 text-white'
+                      track.worship_category ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-blue-900 hover:bg-blue-800 text-white'
                     }`}
                   >
                     {track.worship_category ? 'Re-run Four-Fold' : 'Run Four-Fold'}
@@ -199,7 +288,6 @@ export default function PraiseDashboard() {
               </div>
             </div>
 
-            {/* AI DETAILS DRAWER */}
             {expandedTrack === track.id && (
               <div className="bg-gray-900 p-6 border-t border-gray-700 text-sm grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div>
@@ -214,7 +302,7 @@ export default function PraiseDashboard() {
                 </div>
 
                 <div>
-                  <h3 className="text-blue-400 font-bold mb-3 border-b border-gray-700 pb-1">NAR & Theological Audit</h3>
+                  <h3 className="text-red-400 font-bold mb-3 border-b border-gray-700 pb-1">NAR & Theological Audit</h3>
                   {track.nar_rating ? (
                     <div className="space-y-3">
                       <div className="flex gap-4">
@@ -247,6 +335,12 @@ export default function PraiseDashboard() {
             )}
           </div>
         ))}
+
+        {tracks.length === 0 && !loading && (
+          <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
+            <p className="text-gray-400 text-lg">No tracks match your current filters.</p>
+          </div>
+        )}
       </div>
     </div>
   );
