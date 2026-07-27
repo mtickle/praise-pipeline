@@ -147,6 +147,23 @@ export default function PraiseDashboard() {
     }
   }
 
+  async function updateTrackLink(id, field, value) {
+    // 1. Optimistic UI update so it feels instant
+    setTracks(tracks.map(t => t.id === id ? { ...t, [field]: value } : t));
+
+    // 2. Persist to Supabase
+    const { error } = await supabase
+      .from('playlist_tracks')
+      .update({ [field]: value })
+      .eq('id', id);
+
+    if (error) {
+      console.error(`Failed to update ${field}:`, error);
+      alert(`Failed to save ${field}. Check console.`);
+      fetchTracks(); // Revert the UI if the database failed
+    }
+  }
+
   const toggleExpand = (id) => {
     setExpandedTrack(expandedTrack === id ? null : id);
   };
@@ -275,9 +292,8 @@ export default function PraiseDashboard() {
               <div className="flex-1 flex gap-4 items-start">
                 <button
                   onClick={() => toggleExpand(track.id)}
-                  className={`mt-1 text-gray-400 hover:text-white transition-transform duration-200 ${
-                    expandedTrack === track.id ? "rotate-180" : ""
-                  }`}
+                  className={`mt-1 text-gray-400 hover:text-white transition-transform duration-200 ${expandedTrack === track.id ? "rotate-180" : ""
+                    }`}
                   title="Toggle AI Details"
                 >
                   ▼
@@ -302,11 +318,25 @@ export default function PraiseDashboard() {
                     )}
                   </div>
 
-                  <p className="text-gray-400">
-                    {track.artist} | Source: {track.source} | Added:
-                    {new Date(track.created_at).toLocaleDateString()}
+                <p className="text-gray-400">
+                    {track.artist} | Source: {track.source} | Added: {new Date(track.created_at).toLocaleDateString()}
                   </p>
+                  
+                  {/* CLEANED UP LINK ROW */}
                   <div className="flex gap-4 mt-2 items-center">
+                    <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${track.artist} ${track.title} lyric video`)}`} target="_blank" rel="noreferrer" className="text-red-400 hover:text-red-300 text-sm font-medium">YouTube</a>
+
+                    {track.spotify_url && (
+                      <a href={track.spotify_url} target="_blank" rel="noreferrer" className="text-green-400 hover:text-green-300 text-sm font-medium">Spotify</a>
+                    )}
+
+                    {track.apple_music_url && (
+                      <a href={track.apple_music_url} target="_blank" rel="noreferrer" className="text-pink-400 hover:text-pink-300 text-sm font-medium">Apple Music</a>
+                    )}
+
+                    <button onClick={() => deleteTrack(track.id)} className="text-gray-500 hover:text-red-400 text-sm font-medium ml-4">Remove Track</button>
+                  </div>
+                  {/* <div className="flex gap-4 mt-2 items-center">
                     <a
                       href={track.youtube_link}
                       target="_blank"
@@ -321,7 +351,7 @@ export default function PraiseDashboard() {
                     >
                       Remove Track
                     </button>
-                  </div>
+                  </div> */}
                 </div>
               </div>
 
@@ -345,21 +375,19 @@ export default function PraiseDashboard() {
                 <div className="flex flex-col gap-2 w-48">
                   <button
                     onClick={() => runNARAnalysis(track)}
-                    className={`px-3 py-1 rounded text-sm transition-colors ${
-                      track.nar_rating
+                    className={`px-3 py-1 rounded text-sm transition-colors ${track.nar_rating
                         ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
                         : "bg-red-900 hover:bg-red-800 text-white"
-                    }`}
+                      }`}
                   >
                     {track.nar_rating ? "Re-run NAR Check" : "Run NAR Check"}
                   </button>
                   <button
                     onClick={() => runCategorization(track)}
-                    className={`px-3 py-1 rounded text-sm transition-colors ${
-                      track.worship_category
+                    className={`px-3 py-1 rounded text-sm transition-colors ${track.worship_category
                         ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
                         : "bg-blue-900 hover:bg-blue-800 text-white"
-                    }`}
+                      }`}
                   >
                     {track.worship_category
                       ? "Re-run Four-Fold"
@@ -369,42 +397,26 @@ export default function PraiseDashboard() {
               </div>
             </div>
 
-            {expandedTrack === track.id && (
+{expandedTrack === track.id && (
               <div className="bg-gray-900 p-6 border-t border-gray-700 text-sm grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                {/* COLUMN 1: Liturgical */}
                 <div>
                   <h3 className="text-blue-400 font-bold mb-3 border-b border-gray-700 pb-1">
                     Four-Fold Liturgical Model
                   </h3>
                   {track.worship_category ? (
                     <div className="space-y-3">
-                      <p>
-                        <span className="text-gray-400 font-semibold">
-                          Movement:
-                        </span>{" "}
-                        {track.worship_category}
-                      </p>
-                      <p>
-                        <span className="text-gray-400 font-semibold">
-                          Reasoning:
-                        </span>{" "}
-                        {track.worship_reasoning}
-                      </p>
-                      {track.worship_scripture && (
-                        <p>
-                          <span className="text-gray-400 font-semibold">
-                            Scripture:
-                          </span>{" "}
-                          {track.worship_scripture}
-                        </p>
-                      )}
+                      <p><span className="text-gray-400 font-semibold">Movement:</span> {track.worship_category}</p>
+                      <p><span className="text-gray-400 font-semibold">Reasoning:</span> {track.worship_reasoning}</p>
+                      {track.worship_scripture && <p><span className="text-gray-400 font-semibold">Scripture:</span> {track.worship_scripture}</p>}
                     </div>
                   ) : (
-                    <p className="text-gray-500 italic">
-                      No Liturgical analysis run yet.
-                    </p>
+                    <p className="text-gray-500 italic">No Liturgical analysis run yet.</p>
                   )}
                 </div>
 
+                {/* COLUMN 2: NAR Audit */}
                 <div>
                   <h3 className="text-red-400 font-bold mb-3 border-b border-gray-700 pb-1">
                     NAR & Theological Audit
@@ -412,62 +424,57 @@ export default function PraiseDashboard() {
                   {track.nar_rating ? (
                     <div className="space-y-3">
                       <div className="flex gap-4">
-                        <p>
-                          <span className="text-gray-400 font-semibold">
-                            Verdict:
-                          </span>{" "}
-                          {track.nar_rating}
-                        </p>
-                        <p>
-                          <span className="text-gray-400 font-semibold">
-                            Confidence:
-                          </span>{" "}
-                          {track.nar_confidence}%
-                        </p>
+                        <p><span className="text-gray-400 font-semibold">Verdict:</span> {track.nar_rating}</p>
+                        <p><span className="text-gray-400 font-semibold">Confidence:</span> {track.nar_confidence}%</p>
                       </div>
-                      <p>
-                        <span className="text-gray-400 font-semibold">
-                          Summary:
-                        </span>{" "}
-                        {track.nar_summary}
-                      </p>
+                      <p><span className="text-gray-400 font-semibold">Summary:</span> {track.nar_summary}</p>
 
                       {track.nar_doctrinal_notes?.details?.length > 0 && (
                         <div>
-                          <span className="text-gray-400 font-semibold">
-                            Doctrinal Notes:
-                          </span>
+                          <span className="text-gray-400 font-semibold">Doctrinal Notes:</span>
                           <ul className="list-disc pl-5 mt-1 text-gray-300">
-                            {track.nar_doctrinal_notes.details.map(
-                              (note, i) => (
-                                <li key={i}>{note}</li>
-                              )
-                            )}
+                            {track.nar_doctrinal_notes.details.map((note, i) => <li key={i}>{note}</li>)}
                           </ul>
                         </div>
                       )}
 
                       {track.nar_association_notes?.details?.length > 0 && (
                         <div>
-                          <span className="text-gray-400 font-semibold">
-                            Association Notes:
-                          </span>
+                          <span className="text-gray-400 font-semibold">Association Notes:</span>
                           <ul className="list-disc pl-5 mt-1 text-gray-300">
-                            {track.nar_association_notes.details.map(
-                              (note, i) => (
-                                <li key={i}>{note}</li>
-                              )
-                            )}
+                            {track.nar_association_notes.details.map((note, i) => <li key={i}>{note}</li>)}
                           </ul>
                         </div>
                       )}
                     </div>
                   ) : (
-                    <p className="text-gray-500 italic">
-                      No NAR analysis run yet.
-                    </p>
+                    <p className="text-gray-500 italic">No NAR analysis run yet.</p>
                   )}
                 </div>
+
+                {/* --- NEW SECTION: MANUAL LINK OVERRIDES --- */}
+                {/* col-span-1 md:col-span-2 ensures it stretches all the way across the bottom */}
+                <div className="col-span-1 md:col-span-2 mt-2 pt-6 border-t border-gray-700">
+                  <h3 className="text-gray-400 font-bold mb-3 uppercase tracking-wider text-xs">Manual Link Assignments</h3>
+                  <div className="flex gap-4">
+                    <input 
+                      type="text" 
+                      placeholder="Paste Spotify URL..." 
+                      defaultValue={track.spotify_url || ''}
+                      onBlur={(e) => updateTrackLink(track.id, 'spotify_url', e.target.value)}
+                      className="bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm flex-1 focus:outline-none focus:border-green-500 transition-colors"
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Paste Apple Music URL..." 
+                      defaultValue={track.apple_music_url || ''}
+                      onBlur={(e) => updateTrackLink(track.id, 'apple_music_url', e.target.value)}
+                      className="bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm flex-1 focus:outline-none focus:border-pink-500 transition-colors"
+                    />
+                  </div>
+                </div>
+                {/* --- END NEW SECTION --- */}
+
               </div>
             )}
           </div>
